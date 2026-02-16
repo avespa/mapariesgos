@@ -1,0 +1,1057 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🛡️ Risk Consulting Platform</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Firebase -->
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+    
+    <!-- React & ReactDOM -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    
+    <!-- Babel Standalone para JSX -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif; }
+        .animate-spin { animation: spin 1s linear infinite; }
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        .line-clamp-2 {
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+    </style>
+</head>
+<body class="bg-gray-50">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useCallback } = React;
+
+        // ============================================
+        // CONFIGURACIÓN - YA CONFIGURADO CON TUS CREDENCIALES
+        // ============================================
+        const FIREBASE_CONFIG = {
+            apiKey: "AIzaSyDq-7Iu7epI_JsCepX6uZIN4oMzdo4Ylqk",
+            authDomain: "mapaariesgosorg.firebaseapp.com",
+            projectId: "mapaariesgosorg",
+            storageBucket: "mapaariesgosorg.firebasestorage.app",
+            messagingSenderId: "395060068950",
+            appId: "1:395060068950:web:2f395536e1bbd47c0671f7"
+        };
+
+        const MISTRAL_API_ENDPOINT = "https://api.mistral.ai/v1/chat/completions";
+        const MISTRAL_API_KEY = "3BSmDX702VdWjVILkyraDGcYtMlYUlll";
+
+        // Inicializar Firebase
+        if (!firebase.apps.length) {
+            firebase.initializeApp(FIREBASE_CONFIG);
+        }
+        const db = firebase.firestore();
+
+        // ============================================
+        // HOOKS PERSONALIZADOS
+        // ============================================
+        
+        function useFirestoreCollection(collectionName, filters = []) {
+            const [data, setData] = useState([]);
+            const [loading, setLoading] = useState(true);
+
+            useEffect(() => {
+                let query = db.collection(collectionName);
+                filters.forEach(filter => {
+                    query = query.where(filter.field, filter.op, filter.value);
+                });
+
+                const unsubscribe = query.onSnapshot(snapshot => {
+                    const items = snapshot.docs.map(doc => ({
+                        id: doc.id,
+                        ...doc.data()
+                    }));
+                    setData(items);
+                    setLoading(false);
+                }, error => {
+                    console.error('Error en Firestore:', error);
+                    setLoading(false);
+                });
+
+                return () => unsubscribe();
+            }, [collectionName, JSON.stringify(filters)]);
+
+            const create = async (newData) => {
+                try {
+                    await db.collection(collectionName).add({
+                        ...newData,
+                        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                    });
+                } catch (error) {
+                    console.error('Error creando documento:', error);
+                    throw error;
+                }
+            };
+
+            const update = async (id, updates) => {
+                try {
+                    await db.collection(collectionName).doc(id).update({
+                        ...updates,
+                        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                    });
+                } catch (error) {
+                    console.error('Error actualizando documento:', error);
+                    throw error;
+                }
+            };
+
+            const remove = async (id) => {
+                try {
+                    await db.collection(collectionName).doc(id).delete();
+                } catch (error) {
+                    console.error('Error eliminando documento:', error);
+                    throw error;
+                }
+            };
+
+            return { data, loading, create, update, remove };
+        }
+
+        // ============================================
+        // COMPONENTES
+        // ============================================
+
+        function App() {
+            const [currentPage, setCurrentPage] = useState('home');
+
+            return (
+                <div className="min-h-screen">
+                    {/* Header */}
+                    <header className="bg-white border-b border-gray-200 sticky top-0 z-50 shadow-sm">
+                        <div className="max-w-7xl mx-auto px-4 py-4">
+                            <div className="flex justify-between items-center">
+                                <h1 className="text-2xl font-bold text-gray-900">
+                                    🛡️ Mapa de Riesgos Organizacional
+                                </h1>
+                                <nav className="flex gap-4">
+                                    <button
+                                        onClick={() => setCurrentPage('home')}
+                                        className={`px-4 py-2 rounded-lg transition-colors ${currentPage === 'home' ? 'bg-blue-600 text-white' : 'text-gray-700 hover:bg-gray-100'}`}
+                                    >
+                                        Inicio
+                                    </button>
+                                    <button
+                                        onClick={() => setCurrentPage('organigrama')}
+                                        className={`px-4 py-2 rounded-lg transition-colors ${currentPage === 'organigrama' ? 'bg-blue-600 text-white' : 'text-gray-700 hover:bg-gray-100'}`}
+                                    >
+                                        Organigrama
+                                    </button>
+                                    <button
+                                        onClick={() => setCurrentPage('libreria')}
+                                        className={`px-4 py-2 rounded-lg transition-colors ${currentPage === 'libreria' ? 'bg-blue-600 text-white' : 'text-gray-700 hover:bg-gray-100'}`}
+                                    >
+                                        Librería
+                                    </button>
+                                </nav>
+                            </div>
+                        </div>
+                    </header>
+
+                    {/* Content */}
+                    <main className="max-w-7xl mx-auto px-4 py-8">
+                        {currentPage === 'home' && <HomePage setPage={setCurrentPage} />}
+                        {currentPage === 'organigrama' && <OrganigramaPage />}
+                        {currentPage === 'libreria' && <LibreriaPage />}
+                    </main>
+
+                    {/* Footer */}
+                    <footer className="bg-white border-t border-gray-200 mt-12">
+                        <div className="max-w-7xl mx-auto px-4 py-4 text-center text-sm text-gray-500">
+                            © 2025 Risk Consulting Platform • Powered by Mistral AI & Firebase
+                        </div>
+                    </footer>
+                </div>
+            );
+        }
+
+        function HomePage({ setPage }) {
+            return (
+                <div className="max-w-4xl mx-auto">
+                    <div className="text-center mb-12">
+                        <h1 className="text-5xl font-bold text-gray-900 mb-4">
+                            Gestión Inteligente de Riesgos
+                        </h1>
+                        <p className="text-xl text-gray-600">
+                            Potenciado por IA • Ya configurado y listo para usar
+                        </p>
+                    </div>
+
+                    <div className="grid md:grid-cols-2 gap-6 mb-12">
+                        <div 
+                            onClick={() => setPage('organigrama')}
+                            className="bg-white rounded-lg border-2 border-blue-200 p-6 hover:shadow-xl cursor-pointer hover:border-blue-400 transition-all"
+                        >
+                            <div className="text-4xl mb-4">🏢</div>
+                            <h2 className="text-2xl font-bold text-gray-900 mb-2">
+                                Organigrama Dinámico
+                            </h2>
+                            <p className="text-gray-600">
+                                Navegación jerárquica con herencia de contexto entre niveles.
+                            </p>
+                        </div>
+
+                        <div 
+                            onClick={() => setPage('libreria')}
+                            className="bg-white rounded-lg border-2 border-purple-200 p-6 hover:shadow-xl cursor-pointer hover:border-purple-400 transition-all"
+                        >
+                            <div className="text-4xl mb-4">📚</div>
+                            <h2 className="text-2xl font-bold text-gray-900 mb-2">
+                                Librería de Riesgos
+                            </h2>
+                            <p className="text-gray-600">
+                                Base de datos reutilizable de riesgos maestros.
+                            </p>
+                        </div>
+                    </div>
+
+                    <div className="bg-gradient-to-r from-purple-50 to-blue-50 rounded-lg p-8 mb-8">
+                        <h2 className="text-2xl font-bold text-gray-900 mb-4">
+                            ✨ Características con IA
+                        </h2>
+                        <ul className="space-y-3">
+                            <li className="flex items-start gap-3">
+                                <span className="text-green-600 text-xl">✓</span>
+                                <span className="text-gray-700">
+                                    <strong>Sugerencias Inteligentes:</strong> Mistral AI analiza el contexto y sugiere riesgos relevantes de tu librería
+                                </span>
+                            </li>
+                            <li className="flex items-start gap-3">
+                                <span className="text-green-600 text-xl">✓</span>
+                                <span className="text-gray-700">
+                                    <strong>Preguntas de Entrevista:</strong> Genera automáticamente preguntas clave para validar riesgos
+                                </span>
+                            </li>
+                            <li className="flex items-start gap-3">
+                                <span className="text-green-600 text-xl">✓</span>
+                                <span className="text-gray-700">
+                                    <strong>Análisis de Gaps:</strong> Identifica qué riesgos podrían estar faltando en tu librería
+                                </span>
+                            </li>
+                        </ul>
+                    </div>
+
+                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-6">
+                        <h3 className="font-bold text-blue-900 mb-2">🎯 Primeros Pasos:</h3>
+                        <ol className="list-decimal list-inside space-y-2 text-blue-800">
+                            <li>Ve a <strong>Librería</strong> y crea 3-5 riesgos de ejemplo</li>
+                            <li>Ve a <strong>Organigrama</strong> y crea tu empresa raíz</li>
+                            <li>Crea áreas y sub-áreas bajo la empresa</li>
+                            <li>Click en un área y presiona <strong>"✨ Obtener Sugerencias de IA"</strong></li>
+                            <li>¡La IA te sugerirá los riesgos más relevantes!</li>
+                        </ol>
+                    </div>
+                </div>
+            );
+        }
+
+        function OrganigramaPage() {
+            const { data: nodes, loading, create, update } = useFirestoreCollection('organization');
+            const { data: libraryRisks } = useFirestoreCollection('library');
+            const { data: activeRisks, create: createActiveRisk } = useFirestoreCollection('active_risks');
+            
+            const [selectedNode, setSelectedNode] = useState(null);
+            const [showModal, setShowModal] = useState(false);
+            const [newNode, setNewNode] = useState({
+                name: '',
+                level: 'area',
+                context: '',
+                parentId: null
+            });
+
+            const buildTree = (parentId = null) => {
+                return nodes
+                    .filter(node => node.parentId === parentId)
+                    .map(node => ({
+                        ...node,
+                        children: buildTree(node.id)
+                    }));
+            };
+
+            const tree = buildTree(null);
+
+            const handleCreateNode = async () => {
+                if (!newNode.name.trim()) {
+                    alert('El nombre es obligatorio');
+                    return;
+                }
+                try {
+                    await create({ ...newNode, files: [] });
+                    setShowModal(false);
+                    setNewNode({ name: '', level: 'area', context: '', parentId: null });
+                } catch (error) {
+                    alert('Error al crear nodo: ' + error.message);
+                }
+            };
+
+            if (loading) {
+                return (
+                    <div className="text-center py-12">
+                        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+                        <p className="text-gray-600">Cargando organigrama...</p>
+                    </div>
+                );
+            }
+
+            return (
+                <div>
+                    <div className="mb-6 flex justify-between items-center">
+                        <div>
+                            <h1 className="text-3xl font-bold text-gray-900">Organigrama de Riesgos</h1>
+                            <p className="text-gray-600">Navegación jerárquica con herencia de contexto</p>
+                        </div>
+                        <button
+                            onClick={() => setShowModal(true)}
+                            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2"
+                        >
+                            <span className="text-xl">+</span> Crear Nodo
+                        </button>
+                    </div>
+
+                    <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+                        {tree.length === 0 ? (
+                            <div className="text-center py-12 border-2 border-dashed border-gray-300 rounded-lg">
+                                <div className="text-4xl mb-4">🏢</div>
+                                <h3 className="text-lg font-semibold text-gray-900 mb-2">No hay nodos en el organigrama</h3>
+                                <p className="text-gray-500 mb-4">Comienza creando la empresa raíz</p>
+                                <button
+                                    onClick={() => setShowModal(true)}
+                                    className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                                >
+                                    Crear Empresa
+                                </button>
+                            </div>
+                        ) : (
+                            <TreeView 
+                                nodes={tree} 
+                                onSelect={setSelectedNode} 
+                                selectedId={selectedNode?.id} 
+                            />
+                        )}
+                    </div>
+
+                    {/* Modal Crear Nodo */}
+                    {showModal && (
+                        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                            <div className="bg-white rounded-lg p-6 w-full max-w-md">
+                                <h2 className="text-xl font-bold mb-4">Crear Nuevo Nodo</h2>
+                                <div className="space-y-4">
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">Nombre *</label>
+                                        <input
+                                            type="text"
+                                            placeholder="Ej: Finanzas, IT, Operaciones..."
+                                            value={newNode.name}
+                                            onChange={e => setNewNode({...newNode, name: e.target.value})}
+                                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">Nivel *</label>
+                                        <select
+                                            value={newNode.level}
+                                            onChange={e => setNewNode({...newNode, level: e.target.value})}
+                                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                        >
+                                            <option value="empresa">Empresa</option>
+                                            <option value="area">Área</option>
+                                            <option value="subarea">Sub-área</option>
+                                            <option value="proceso">Proceso</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">Nodo Padre</label>
+                                        <select
+                                            value={newNode.parentId || ''}
+                                            onChange={e => setNewNode({...newNode, parentId: e.target.value || null})}
+                                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                        >
+                                            <option value="">Sin padre (nodo raíz)</option>
+                                            {nodes.map(node => (
+                                                <option key={node.id} value={node.id}>
+                                                    {node.name} ({node.level})
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">Contexto</label>
+                                        <textarea
+                                            placeholder="Describe el contexto de este nodo..."
+                                            value={newNode.context}
+                                            onChange={e => setNewNode({...newNode, context: e.target.value})}
+                                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                            rows="3"
+                                        />
+                                    </div>
+                                </div>
+                                <div className="flex gap-3 mt-6">
+                                    <button
+                                        onClick={handleCreateNode}
+                                        className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium"
+                                    >
+                                        Crear
+                                    </button>
+                                    <button
+                                        onClick={() => {
+                                            setShowModal(false);
+                                            setNewNode({ name: '', level: 'area', context: '', parentId: null });
+                                        }}
+                                        className="flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 font-medium"
+                                    >
+                                        Cancelar
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Panel Lateral */}
+                    {selectedNode && (
+                        <SidePanel
+                            node={selectedNode}
+                            onClose={() => setSelectedNode(null)}
+                            onUpdate={update}
+                            libraryRisks={libraryRisks}
+                            activeRisks={activeRisks.filter(r => r.nodeId === selectedNode.id)}
+                            onCreateRisk={createActiveRisk}
+                        />
+                    )}
+                </div>
+            );
+        }
+
+        function TreeView({ nodes, onSelect, selectedId, depth = 0 }) {
+            const [expanded, setExpanded] = useState({});
+
+            const levelColors = {
+                empresa: 'bg-purple-100 border-purple-300 text-purple-900',
+                area: 'bg-blue-100 border-blue-300 text-blue-900',
+                subarea: 'bg-green-100 border-green-300 text-green-900',
+                proceso: 'bg-yellow-100 border-yellow-300 text-yellow-900'
+            };
+
+            const levelIcons = {
+                empresa: '🏢',
+                area: '📂',
+                subarea: '📋',
+                proceso: '⚙️'
+            };
+
+            return (
+                <div className={`space-y-2 ${depth > 0 ? 'ml-6 border-l-2 border-gray-200 pl-4 mt-2' : ''}`}>
+                    {nodes.map(node => (
+                        <div key={node.id}>
+                            <div className="flex items-center gap-2">
+                                {node.children?.length > 0 && (
+                                    <button
+                                        onClick={() => setExpanded({...expanded, [node.id]: !expanded[node.id]})}
+                                        className="p-1 hover:bg-gray-100 rounded transition-colors"
+                                    >
+                                        <span className="text-sm">{expanded[node.id] ? '▼' : '▶'}</span>
+                                    </button>
+                                )}
+                                <div
+                                    onClick={() => onSelect(node)}
+                                    className={`flex-1 p-4 rounded-lg border-2 cursor-pointer transition-all ${levelColors[node.level] || 'bg-gray-100 border-gray-300'} ${selectedId === node.id ? 'ring-4 ring-blue-500 shadow-lg scale-105' : 'hover:shadow-md'}`}
+                                >
+                                    <div className="flex items-start justify-between">
+                                        <div className="flex-1">
+                                            <div className="flex items-center gap-2 mb-1">
+                                                <span className="text-2xl">{levelIcons[node.level]}</span>
+                                                <div className="font-semibold text-lg">{node.name}</div>
+                                            </div>
+                                            <div className="text-xs opacity-75 uppercase tracking-wide mb-2">{node.level}</div>
+                                            {node.context && (
+                                                <div className="text-sm opacity-80 line-clamp-2">{node.context}</div>
+                                            )}
+                                        </div>
+                                        <svg className="w-5 h-5 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                        </svg>
+                                    </div>
+                                </div>
+                            </div>
+                            {expanded[node.id] && node.children?.length > 0 && (
+                                <TreeView 
+                                    nodes={node.children} 
+                                    onSelect={onSelect} 
+                                    selectedId={selectedId} 
+                                    depth={depth + 1} 
+                                />
+                            )}
+                        </div>
+                    ))}
+                </div>
+            );
+        }
+
+        function SidePanel({ node, onClose, onUpdate, libraryRisks, activeRisks, onCreateRisk }) {
+            const [editing, setEditing] = useState(false);
+            const [context, setContext] = useState(node.context || '');
+            const [loadingAI, setLoadingAI] = useState(false);
+            const [suggestions, setSuggestions] = useState(null);
+
+            const handleSave = async () => {
+                try {
+                    await onUpdate(node.id, { context });
+                    setEditing(false);
+                } catch (error) {
+                    alert('Error al guardar: ' + error.message);
+                }
+            };
+
+            const handleAI = async () => {
+                if (libraryRisks.length === 0) {
+                    alert('Primero crea algunos riesgos en la Librería de Riesgos');
+                    return;
+                }
+
+                setLoadingAI(true);
+                try {
+                    const response = await fetch(MISTRAL_API_ENDPOINT, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${MISTRAL_API_KEY}`
+                        },
+                        body: JSON.stringify({
+                            model: 'mistral-large-latest',
+                            messages: [{
+                                role: 'user',
+                                content: `Eres un experto en riesgos empresariales. Analiza este contexto y sugiere los 3 riesgos más relevantes de la lista proporcionada.
+
+CONTEXTO DEL ÁREA:
+Nombre: ${node.name}
+Nivel: ${node.level}
+Descripción: ${node.context || 'Sin contexto específico'}
+
+RIESGOS DISPONIBLES EN LA LIBRERÍA:
+${libraryRisks.map((r, i) => `${i+1}. ${r.name} (${r.category}) - ${r.description} [P:${r.baseProbability} I:${r.baseImpact}]`).join('\n')}
+
+Responde SOLO en este formato JSON (sin texto adicional):
+{
+  "risks": [
+    {"name": "nombre del riesgo", "reasoning": "por qué es relevante para este contexto", "probability": 1-5, "impact": 1-5}
+  ],
+  "questions": ["pregunta 1", "pregunta 2", "pregunta 3"],
+  "gaps": "breve análisis de qué riesgos podrían estar faltando"
+}`
+                            }],
+                            temperature: 0.7,
+                            max_tokens: 1500
+                        })
+                    });
+
+                    if (!response.ok) {
+                        throw new Error(`Error ${response.status}: ${response.statusText}`);
+                    }
+
+                    const data = await response.json();
+                    const content = data.choices[0].message.content;
+                    
+                    // Limpiar markdown si existe
+                    const cleanContent = content.replace(/```json\n?|\n?```/g, '').trim();
+                    const parsed = JSON.parse(cleanContent);
+                    
+                    setSuggestions(parsed);
+                } catch (error) {
+                    console.error('Error completo:', error);
+                    alert('Error al conectar con la IA: ' + error.message + '\n\nVerifica que tengas créditos en tu cuenta de Mistral AI.');
+                } finally {
+                    setLoadingAI(false);
+                }
+            };
+
+            const handleApplyRisk = async (suggestedRisk) => {
+                const libraryRisk = libraryRisks.find(r => r.name === suggestedRisk.name);
+                if (!libraryRisk) {
+                    alert('No se encontró el riesgo en la librería');
+                    return;
+                }
+
+                try {
+                    await onCreateRisk({
+                        nodeId: node.id,
+                        libraryRiskId: libraryRisk.id,
+                        adjustedProbability: suggestedRisk.probability || libraryRisk.baseProbability,
+                        adjustedImpact: suggestedRisk.impact || libraryRisk.baseImpact,
+                        justification: suggestedRisk.reasoning,
+                        controls: [],
+                        status: 'identificado'
+                    });
+                    alert('Riesgo aplicado exitosamente');
+                } catch (error) {
+                    alert('Error al aplicar riesgo: ' + error.message);
+                }
+            };
+
+            const getRiskColor = (score) => {
+                if (score >= 15) return 'bg-red-500';
+                if (score >= 10) return 'bg-orange-500';
+                if (score >= 6) return 'bg-yellow-500';
+                return 'bg-green-500';
+            };
+
+            return (
+                <div className="fixed inset-y-0 right-0 w-full md:w-2/3 bg-white shadow-2xl border-l z-40 overflow-y-auto">
+                    <div className="p-6 border-b flex justify-between items-center bg-gradient-to-r from-blue-50">
+                        <div>
+                            <h2 className="text-2xl font-bold">{node.name}</h2>
+                            <p className="text-sm text-gray-600 uppercase">{node.level}</p>
+                        </div>
+                        <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-full transition-colors">
+                            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                        </button>
+                    </div>
+
+                    <div className="p-6 space-y-6">
+                        {/* Contexto */}
+                        <section>
+                            <div className="flex justify-between items-center mb-3">
+                                <h3 className="text-lg font-semibold">Contexto del Área</h3>
+                                {!editing && (
+                                    <button onClick={() => setEditing(true)} className="text-blue-600 text-sm hover:text-blue-800">
+                                        Editar
+                                    </button>
+                                )}
+                            </div>
+                            {editing ? (
+                                <div className="space-y-2">
+                                    <textarea
+                                        value={context}
+                                        onChange={e => setContext(e.target.value)}
+                                        className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                        rows="4"
+                                        placeholder="Describe el contexto de esta área..."
+                                    />
+                                    <div className="flex gap-2">
+                                        <button onClick={handleSave} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                                            Guardar
+                                        </button>
+                                        <button 
+                                            onClick={() => {
+                                                setContext(node.context || '');
+                                                setEditing(false);
+                                            }} 
+                                            className="px-4 py-2 bg-gray-200 rounded-lg hover:bg-gray-300"
+                                        >
+                                            Cancelar
+                                        </button>
+                                    </div>
+                                </div>
+                            ) : (
+                                <p className="text-gray-700 bg-gray-50 p-4 rounded-lg">
+                                    {node.context || 'Sin contexto definido'}
+                                </p>
+                            )}
+                        </section>
+
+                        {/* Riesgos Activos */}
+                        <section>
+                            <h3 className="text-lg font-semibold mb-3">Riesgos Activos</h3>
+                            {activeRisks.length === 0 ? (
+                                <div className="text-center py-8 bg-gray-50 rounded-lg border-2 border-dashed">
+                                    <p className="text-gray-500">No hay riesgos activos en esta área</p>
+                                    <p className="text-sm text-gray-400 mt-1">Usa la IA para obtener sugerencias</p>
+                                </div>
+                            ) : (
+                                <div className="space-y-3">
+                                    {activeRisks.map(risk => {
+                                        const libRisk = libraryRisks.find(r => r.id === risk.libraryRiskId);
+                                        const score = risk.adjustedProbability * risk.adjustedImpact;
+                                        return (
+                                            <div key={risk.id} className="border rounded-lg p-4 hover:shadow-md transition-shadow">
+                                                <div className="flex justify-between items-start">
+                                                    <div className="flex-1">
+                                                        <h4 className="font-semibold">{libRisk?.name}</h4>
+                                                        <p className="text-sm text-gray-600 mt-1">{risk.justification}</p>
+                                                        <div className="mt-2 flex gap-4 text-sm text-gray-500">
+                                                            <span>Probabilidad: {risk.adjustedProbability}/5</span>
+                                                            <span>Impacto: {risk.adjustedImpact}/5</span>
+                                                        </div>
+                                                    </div>
+                                                    <div className={`ml-4 px-3 py-1 rounded-full text-white text-sm font-medium h-fit ${getRiskColor(score)}`}>
+                                                        {score}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                        </section>
+
+                        {/* Botón IA */}
+                        <button
+                            onClick={handleAI}
+                            disabled={loadingAI}
+                            className="w-full py-3 bg-gradient-to-r from-purple-600 to-blue-600 text-white rounded-lg font-semibold disabled:opacity-50 disabled:cursor-not-allowed transition-all hover:from-purple-700 hover:to-blue-700 flex items-center justify-center gap-2"
+                        >
+                            {loadingAI ? (
+                                <>
+                                    <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
+                                    Analizando con IA...
+                                </>
+                            ) : (
+                                <>
+                                    ✨ Obtener Sugerencias de IA
+                                </>
+                            )}
+                        </button>
+
+                        {/* Sugerencias */}
+                        {suggestions && (
+                            <section className="bg-purple-50 p-4 rounded-lg border border-purple-200">
+                                <h3 className="text-lg font-semibold text-purple-900 mb-4">Sugerencias de Mistral AI</h3>
+                                <div className="space-y-4">
+                                    {suggestions.risks && suggestions.risks.length > 0 && (
+                                        <div>
+                                            <h4 className="font-semibold mb-2">Riesgos Sugeridos:</h4>
+                                            <div className="space-y-2">
+                                                {suggestions.risks.map((r, i) => (
+                                                    <div key={i} className="bg-white p-3 rounded border border-purple-200">
+                                                        <div className="flex justify-between items-start gap-3">
+                                                            <div className="flex-1">
+                                                                <h5 className="font-medium">{r.name}</h5>
+                                                                <p className="text-sm text-gray-600 mt-1">{r.reasoning}</p>
+                                                                {r.probability && r.impact && (
+                                                                    <div className="mt-2 text-xs text-gray-500">
+                                                                        P: {r.probability}/5 | I: {r.impact}/5
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                            <button
+                                                                onClick={() => handleApplyRisk(r)}
+                                                                className="px-3 py-1 bg-purple-600 text-white text-sm rounded hover:bg-purple-700 whitespace-nowrap"
+                                                            >
+                                                                Aplicar
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+                                    {suggestions.questions && suggestions.questions.length > 0 && (
+                                        <div>
+                                            <h4 className="font-semibold mb-2">Preguntas de Entrevista:</h4>
+                                            <ul className="list-disc list-inside text-sm text-gray-700 space-y-1 bg-white p-3 rounded">
+                                                {suggestions.questions.map((q, i) => (
+                                                    <li key={i}>{q}</li>
+                                                ))}
+                                            </ul>
+                                        </div>
+                                    )}
+                                    {suggestions.gaps && (
+                                        <div>
+                                            <h4 className="font-semibold mb-2">Análisis de Gaps:</h4>
+                                            <p className="text-sm text-gray-700 bg-yellow-50 p-3 rounded border border-yellow-200">
+                                                {suggestions.gaps}
+                                            </p>
+                                        </div>
+                                    )}
+                                </div>
+                            </section>
+                        )}
+                    </div>
+                </div>
+            );
+        }
+
+        function LibreriaPage() {
+            const { data: risks, loading, create, update, remove } = useFirestoreCollection('library');
+            const [showModal, setShowModal] = useState(false);
+            const [editing, setEditing] = useState(null);
+            const [filter, setFilter] = useState('all');
+            const [formData, setFormData] = useState({
+                name: '',
+                category: 'Operacional',
+                description: '',
+                baseProbability: 3,
+                baseImpact: 3,
+                mitigationGuidelines: ''
+            });
+
+            const categories = ['all', 'Estratégico', 'Operacional', 'Cyber', 'Cumplimiento'];
+            const filtered = filter === 'all' ? risks : risks.filter(r => r.category === filter);
+
+            const handleSubmit = async () => {
+                if (!formData.name.trim() || !formData.description.trim()) {
+                    alert('Nombre y descripción son obligatorios');
+                    return;
+                }
+                try {
+                    if (editing) {
+                        await update(editing.id, formData);
+                    } else {
+                        await create(formData);
+                    }
+                    handleCloseModal();
+                } catch (error) {
+                    alert('Error al guardar: ' + error.message);
+                }
+            };
+
+            const handleEdit = (risk) => {
+                setEditing(risk);
+                setFormData({
+                    name: risk.name,
+                    category: risk.category,
+                    description: risk.description,
+                    baseProbability: risk.baseProbability,
+                    baseImpact: risk.baseImpact,
+                    mitigationGuidelines: risk.mitigationGuidelines || ''
+                });
+                setShowModal(true);
+            };
+
+            const handleCloseModal = () => {
+                setShowModal(false);
+                setEditing(null);
+                setFormData({ 
+                    name: '', 
+                    category: 'Operacional', 
+                    description: '', 
+                    baseProbability: 3, 
+                    baseImpact: 3,
+                    mitigationGuidelines: ''
+                });
+            };
+
+            if (loading) {
+                return (
+                    <div className="text-center py-12">
+                        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+                        <p className="text-gray-600">Cargando librería...</p>
+                    </div>
+                );
+            }
+
+            return (
+                <div>
+                    <div className="mb-6 flex justify-between items-center">
+                        <div>
+                            <h1 className="text-3xl font-bold text-gray-900">Librería de Riesgos</h1>
+                            <p className="text-gray-600">{risks.length} riesgo{risks.length !== 1 ? 's' : ''} en total</p>
+                        </div>
+                        <button
+                            onClick={() => setShowModal(true)}
+                            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2"
+                        >
+                            <span className="text-xl">+</span> Nuevo Riesgo
+                        </button>
+                    </div>
+
+                    {/* Filtros */}
+                    <div className="mb-6 flex gap-2 flex-wrap">
+                        {categories.map(cat => (
+                            <button
+                                key={cat}
+                                onClick={() => setFilter(cat)}
+                                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${filter === cat ? 'bg-blue-600 text-white' : 'bg-white border border-gray-300 hover:bg-gray-50'}`}
+                            >
+                                {cat === 'all' ? 'Todos' : cat}
+                                {cat !== 'all' && ` (${risks.filter(r => r.category === cat).length})`}
+                            </button>
+                        ))}
+                    </div>
+
+                    {/* Tabla */}
+                    <div className="bg-white rounded-lg shadow-sm border overflow-hidden">
+                        {filtered.length === 0 ? (
+                            <div className="text-center py-12">
+                                <div className="text-4xl mb-4">📚</div>
+                                <h3 className="text-lg font-semibold text-gray-900 mb-2">
+                                    {filter === 'all' ? 'No hay riesgos en la librería' : `No hay riesgos en la categoría "${filter}"`}
+                                </h3>
+                                <p className="text-gray-500 mb-4">Comienza creando tu primer riesgo</p>
+                                <button
+                                    onClick={() => setShowModal(true)}
+                                    className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                                >
+                                    Crear Primer Riesgo
+                                </button>
+                            </div>
+                        ) : (
+                            <table className="min-w-full divide-y divide-gray-200">
+                                <thead className="bg-gray-50">
+                                    <tr>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Riesgo</th>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Categoría</th>
+                                        <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">P</th>
+                                        <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">I</th>
+                                        <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Score</th>
+                                        <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Acciones</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-gray-200">
+                                    {filtered.map(risk => {
+                                        const score = risk.baseProbability * risk.baseImpact;
+                                        const scoreColor = 
+                                            score >= 15 ? 'bg-red-100 text-red-800' :
+                                            score >= 10 ? 'bg-orange-100 text-orange-800' :
+                                            score >= 6 ? 'bg-yellow-100 text-yellow-800' :
+                                            'bg-green-100 text-green-800';
+                                        
+                                        return (
+                                            <tr key={risk.id} className="hover:bg-gray-50">
+                                                <td className="px-6 py-4">
+                                                    <div className="font-medium text-gray-900">{risk.name}</div>
+                                                    <div className="text-sm text-gray-500 line-clamp-2">{risk.description}</div>
+                                                </td>
+                                                <td className="px-6 py-4 text-sm">
+                                                    <span className="px-2 py-1 bg-gray-100 rounded-full text-xs">
+                                                        {risk.category}
+                                                    </span>
+                                                </td>
+                                                <td className="px-6 py-4 text-center font-medium">{risk.baseProbability}</td>
+                                                <td className="px-6 py-4 text-center font-medium">{risk.baseImpact}</td>
+                                                <td className="px-6 py-4 text-center">
+                                                    <span className={`px-3 py-1 rounded-full text-sm font-medium ${scoreColor}`}>
+                                                        {score}
+                                                    </span>
+                                                </td>
+                                                <td className="px-6 py-4 text-right space-x-2">
+                                                    <button
+                                                        onClick={() => handleEdit(risk)}
+                                                        className="text-blue-600 hover:text-blue-800 text-sm font-medium"
+                                                    >
+                                                        Editar
+                                                    </button>
+                                                    <button
+                                                        onClick={() => confirm('¿Eliminar este riesgo?') && remove(risk.id)}
+                                                        className="text-red-600 hover:text-red-800 text-sm font-medium"
+                                                    >
+                                                        Eliminar
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
+                                </tbody>
+                            </table>
+                        )}
+                    </div>
+
+                    {/* Modal */}
+                    {showModal && (
+                        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                            <div className="bg-white rounded-lg p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+                                <h2 className="text-xl font-bold mb-4">
+                                    {editing ? 'Editar Riesgo' : 'Nuevo Riesgo'}
+                                </h2>
+                                <div className="space-y-4">
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">Nombre del Riesgo *</label>
+                                        <input
+                                            type="text"
+                                            placeholder="Ej: Falla en infraestructura crítica"
+                                            value={formData.name}
+                                            onChange={e => setFormData({...formData, name: e.target.value})}
+                                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">Categoría *</label>
+                                        <select
+                                            value={formData.category}
+                                            onChange={e => setFormData({...formData, category: e.target.value})}
+                                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                        >
+                                            <option>Estratégico</option>
+                                            <option>Operacional</option>
+                                            <option>Cyber</option>
+                                            <option>Cumplimiento</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">Descripción *</label>
+                                        <textarea
+                                            placeholder="Describe el riesgo en detalle..."
+                                            value={formData.description}
+                                            onChange={e => setFormData({...formData, description: e.target.value})}
+                                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                            rows="3"
+                                        />
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">Probabilidad Base (1-5)</label>
+                                            <input
+                                                type="number"
+                                                min="1"
+                                                max="5"
+                                                value={formData.baseProbability}
+                                                onChange={e => setFormData({...formData, baseProbability: Math.min(5, Math.max(1, parseInt(e.target.value) || 1))})}
+                                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">Impacto Base (1-5)</label>
+                                            <input
+                                                type="number"
+                                                min="1"
+                                                max="5"
+                                                value={formData.baseImpact}
+                                                onChange={e => setFormData({...formData, baseImpact: Math.min(5, Math.max(1, parseInt(e.target.value) || 1))})}
+                                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                            />
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">Guías de Mitigación (opcional)</label>
+                                        <textarea
+                                            placeholder="Recomendaciones para mitigar este riesgo..."
+                                            value={formData.mitigationGuidelines}
+                                            onChange={e => setFormData({...formData, mitigationGuidelines: e.target.value})}
+                                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                            rows="2"
+                                        />
+                                    </div>
+                                </div>
+                                <div className="flex gap-3 mt-6">
+                                    <button
+                                        onClick={handleSubmit}
+                                        className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium"
+                                    >
+                                        {editing ? 'Actualizar' : 'Crear'}
+                                    </button>
+                                    <button
+                                        onClick={handleCloseModal}
+                                        className="flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 font-medium"
+                                    >
+                                        Cancelar
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        // Renderizar App
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
